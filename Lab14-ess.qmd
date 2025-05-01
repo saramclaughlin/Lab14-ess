@@ -22,3 +22,248 @@ library(dplyr)
 library(flextable)
 ```
 
+Question 1:
+```{r}
+eqdc <- '+proj=eqdc +lat_0=40 +lon_0=-96 +lat_1=20 +lat_2=60 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs'
+
+state_boundaries <- aoi_get(state = 'conus')
+states_projection <- st_transform(state_boundaries, crs = eqdc)
+st_crs(state_boundaries)
+
+country_boundaries <- aoi_get(country = c("MX", "CA", "USA"))
+country_projection <- st_transform(country_boundaries, crs = eqdc)
+
+cities <- read_csv("uscities.csv")
+cities_sf <- st_as_sf(cities, 
+                      coords = c("lng", "lat"), 
+                      crs = 4326) %>%
+  filter(!(state_name %in% c("Alaska", "Hawaii", "Puerto Rico")))
+cities_projection <- st_transform(cities_sf, crs = eqdc)  
+```
+
+Question 2: 
+```{r}
+usa_union <- states_projection %>%
+  st_union() %>%
+  st_as_sf()
+usa_border <- st_boundary(usa_union)
+usa_border_proj <- st_transform(usa_border, crs = eqdc)
+cities_projection$dist_to_border_m <- st_distance(cities_projection, usa_border_proj) %>%
+  as.numeric()
+top5_farthest <- cities_projection %>%
+  arrange(desc(dist_to_border_m)) %>%
+  slice_head(n = 5) %>%
+  select(city, state_name, dist_to_border_m)
+flextable(top5_farthest)
+
+state_boundaries_lines <- st_boundary(state_boundaries)
+state_boundaries_lines_proj <- st_transform(state_boundaries_lines, crs = eqdc)
+cities_projection$dist_to_state_border_m <- st_distance(cities_projection, state_boundaries_lines_proj) %>%
+  apply(1, min)
+top5_state_border <- cities_projection %>%
+  arrange(desc(dist_to_state_border_m)) %>%
+  slice_head(n = 5) %>%
+  select(city, state_name, dist_to_state_border_m)
+flextable(top5_state_border)
+
+mexico <- country_projection %>%
+  filter(admin == "Mexico")
+mexico_border <- st_boundary(mexico)
+cities_projection$dist_to_mexico_m <- st_distance(cities_projection, mexico_border) %>%
+  as.numeric()
+top5_mexico <- cities_projection %>%
+  arrange(desc(dist_to_mexico_m)) %>%
+  slice_head(n = 5) %>%
+  select(city, state_name, dist_to_mexico_m)
+flextable(top5_mexico)
+
+canada <- country_projection %>%
+  filter(admin == "Canada")
+canada_border <- st_boundary(canada)
+cities_projection$dist_to_canada_m <- st_distance(cities_projection, canada_border) %>%
+  as.numeric()
+top5_canada <- cities_projection %>%
+  arrange(desc(dist_to_canada_m)) %>%
+  slice_head(n = 5) %>%
+  select(city, state_name, dist_to_canada_m)
+flextable(top5_canada)
+```
+
+Question 3:
+```{r}
+# map 1
+top10_cities <- cities_projection %>%
+  arrange(desc(population)) %>%
+  slice_head(n = 10)
+
+continents <- country_projection %>%
+  filter(admin %in% c("USA", "Canada", "Mexico", "South America", "North America"))
+
+top10_cities_coords <- st_coordinates(top10_cities)
+
+top10_cities <- top10_cities %>%
+  bind_cols(as.data.frame(top10_cities_coords)) %>%
+  rename(longitude = X, latitude = Y)
+
+ggplot() +
+  geom_sf(data = continents, fill = "lightgray", color = "black") +
+  geom_sf(data = states_projection, fill = NA, color = "black", lty = 1, size = 0.8) +
+  geom_sf(data = state_boundaries, fill = NA, color = "black", lty = 2, size = 0.5) +
+  geom_sf(data = top10_cities, aes(geometry = geometry), color = "red", size = 3) +
+  ggrepel::geom_label_repel(data = top10_cities, aes(x = longitude, y = latitude, label = city),
+                            box.padding = 0.3, point.padding = 0.3, size = 3, 
+                            color = "black", fontface = "bold", max.overlaps = 10) +
+  theme_minimal() +
+  labs(title = "USA Cities and Boundaries",
+       subtitle = "Top 10 Largest Cities by Population") +
+  theme(legend.position = "none")
+
+
+# map 2
+top5_farthest_coords <- st_coordinates(top5_farthest)
+top5_farthest <- top5_farthest %>%
+  bind_cols(as.data.frame(top5_farthest_coords)) %>%
+  rename(longitude = X, latitude = Y)
+
+ggplot() +
+  geom_sf(data = states_projection, fill = NA, color = "black", lty = 1, size = 0.8) +
+  geom_sf(data = cities_projection, aes(color = dist_to_border_m), size = 2) +
+  scale_color_viridis_c(name = "Distance to National Border (km)") +
+  geom_sf(data = top5_farthest, color = "red", size = 1) +
+  ggrepel::geom_label_repel(data = top5_farthest, aes(x = longitude, y = latitude, label = city),
+                            box.padding = 0.3, point.padding = 0.3, size = 3, 
+                            color = "black", fontface = "bold", max.overlaps = 10) +
+  theme_minimal() +
+  labs(title = "USA Cities Colored by Distance from National Border",
+       subtitle = "5 Farthest Cities from the National Border Labeled") +
+  theme(legend.position = "right")
+
+#map 3
+top5_state_border_coords <- st_coordinates(top5_state_border)
+top5_state_border <- top5_state_border %>%
+  bind_cols(as.data.frame(top5_state_border_coords)) %>%
+  rename(longitude = X, latitude = Y)
+ggplot() +
+  geom_sf(data = states_projection, fill = NA, color = "black", lty = 1, size = 0.8) +
+  geom_sf(data = cities_projection, aes(color = dist_to_state_border_m), size = 2) +
+  scale_color_viridis_c(name = "Distance to Nearest State Border (m)") +
+  geom_sf(data = top5_state_border, color = "red", size = 1) +
+  ggrepel::geom_label_repel(data = top5_state_border, aes(x = longitude, y = latitude, label = city),
+                            box.padding = 0.3, point.padding = 0.3, size = 3, 
+                            color = "black", fontface = "bold", max.overlaps = 10) +
+  theme_minimal() +
+  labs(title = "USA Cities Colored by Distance to Nearest State Border",
+       subtitle = "5 Cities Farther from Any State Border Labeled") +
+  theme(legend.position = "right")
+
+# map 4
+mexico_border <- country_projection %>%
+  filter(name == "Mexico") %>%
+  st_union() %>%
+  st_cast("MULTILINESTRING")
+canada_border <- country_projection %>%
+  filter(name == "Canada") %>%
+  st_union() %>%
+  st_cast("MULTILINESTRING")
+
+cities_projection$dist_to_mexico_km <- as.numeric(
+  st_distance(cities_projection, mexico_border)
+) / 1000
+cities_projection$dist_to_canada_km <- as.numeric(
+  st_distance(cities_projection, canada_border)
+) / 1000
+
+cities_projection$equal_dist_diff <- abs(
+  cities_projection$dist_to_mexico_km - cities_projection$dist_to_canada_km
+)
+
+equal_zone_cities <- cities_projection %>%
+  filter(equal_dist_diff <= 100)
+
+top5_equal_zone <- equal_zone_cities %>%
+  arrange(desc(population)) %>%
+  slice_head(n = 5)
+
+ggplot() +
+  geom_sf(data = cities_projection, color = "gray70", size = 0.4) +
+  geom_sf(data = equal_zone_cities, color = "orange", size = 1) +
+  gghighlight(equal_dist_diff <= 100, use_direct_label = FALSE) +
+  geom_sf(data = top5_equal_zone, color = "red", size = 2) +
+  ggrepel::geom_label_repel(
+    data = top5_equal_zone %>% st_drop_geometry() %>% 
+      mutate(X = st_coordinates(top5_equal_zone)[,1],
+             Y = st_coordinates(top5_equal_zone)[,2]),
+    aes(x = X, y = Y, label = city),
+    size = 3, box.padding = 0.4, max.overlaps = 10
+  ) +
+  scale_color_viridis_c(option = "plasma") +
+  labs(title = "Cities Roughly Equidistant from Canada and Mexico Borders",
+       color = "Abs. Diff (km)") +
+  theme_minimal() +
+  guides(color = FALSE)
+```
+
+Question 4:
+```{r}
+border_zone_cities <- cities_projection %>%
+  filter(dist_to_canada_km <= 160 | dist_to_mexico_km <= 160)
+
+num_cities <- nrow(border_zone_cities)
+
+zone_population <- sum(border_zone_cities$population, na.rm = TRUE)
+
+total_population <- sum(cities_projection$population, na.rm = TRUE)
+
+population_percent <- (zone_population / total_population) * 100
+
+aclu_estimate <- 66.6
+within_estimate <- population_percent >= (aclu_estimate - 5) & population_percent <= (aclu_estimate + 5)
+
+summary_df <- tibble(
+  `Cities in 160km zone` = num_cities,
+  `Population in zone` = format(zone_population, big.mark = ","),
+  `Total population` = format(total_population, big.mark = ","),
+  `Percent in zone` = sprintf("%.1f%%", population_percent),
+  `Matches ACLU estimate?` = ifelse(within_estimate, "Yes", "No")
+)
+
+flextable(summary_df)
+```
+
+```{r}
+cities_projection <- cities_projection %>%
+  mutate(
+    near_border = dist_to_mexico_km <= 160 | dist_to_canada_km <= 160
+  )
+
+danger_zone_cities <- cities_projection %>%
+  filter(near_border)
+
+top10_danger_zone <- danger_zone_cities %>%
+  arrange(desc(population)) %>%
+  slice_head(n = 10) %>%
+  mutate(coords = st_coordinates(geometry),
+         X = coords[, 1],
+         Y = coords[, 2])
+
+ggplot() +
+  geom_sf(data = states_projection, fill = NA, color = "gray70", lty = 2) +
+  geom_sf(data = danger_zone_cities, color = "red", size = 1) +
+  gghighlight(TRUE, use_direct_label = FALSE) +
+  geom_label_repel(
+    data = top10_danger_zone,
+    aes(x = X, y = Y, label = city),
+    size = 3,
+    color = "black",
+    box.padding = 0.3,
+    max.overlaps = Inf
+  ) +
+  labs(
+    title = "Cities Within the Danger Zone",
+    subtitle = "Top 10 Most Populous Cities Labeled",
+    color = "Population"
+  ) +
+  theme_minimal() +
+  guides(color = FALSE)
+```
+
