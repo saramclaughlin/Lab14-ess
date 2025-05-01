@@ -1,0 +1,24 @@
+---
+title: "Lab14: Distances and the Border Zone"
+subtitle: 'Ecosystem Science and Sustainability'
+author: 
+  - name: "Sara McLaughlin"
+    email: "mclau0@colostate.edu"
+date: "04-29-2025"
+format: html
+execute:
+  echo: true
+---
+```{r}
+library(tidyverse)
+library(sf)
+library(units)
+library(AOI)
+library(gghighlight)
+library(ggrepel)
+library(knitr)
+library(readr)
+library(dplyr)
+library(flextable)
+```
+
